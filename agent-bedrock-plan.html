@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Bedrock Agent Security POC - Incremental Testing Plan</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 40px;
+        color: #333;
+    }
+    h1, h2, h3 {
+        color: #0f4c81;
+    }
+    .phase {
+        border-left: 5px solid #0f4c81;
+        padding-left: 15px;
+        margin-top: 25px;
+    }
+    .note {
+        background: #f4f8fb;
+        border: 1px solid #d8e8f5;
+        padding: 10px;
+        margin: 10px 0;
+    }
+    .success {
+        background: #eef9ee;
+        border: 1px solid #b9e0b9;
+        padding: 10px;
+    }
+    pre {
+        background: #f5f5f5;
+        padding: 12px;
+        overflow-x: auto;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 20px;
+    }
+    table, th, td {
+        border: 1px solid #ccc;
+    }
+    th {
+        background: #0f4c81;
+        color: white;
+    }
+    th, td {
+        padding: 10px;
+        text-align: left;
+    }
+</style>
+</head>
+
+<body>
+
+<h1>AWS Bedrock Agent Security POC</h1>
+
+<h2>Objective</h2>
+
+<p>
+Build a low-cost Proof of Concept (POC) to validate:
+</p>
+
+<ul>
+    <li>PingFederate authentication (First Mile)</li>
+    <li>Temporal session controls</li>
+    <li>Cedar fine-grained authorization</li>
+    <li>Bedrock Agent orchestration</li>
+    <li>Least-privilege outbound access (Last Mile)</li>
+</ul>
+
+<p>
+The architecture is intentionally incremental so each capability can be validated independently while keeping AWS costs near zero when idle.
+</p>
+
+<hr>
+
+<h2>Target Architecture</h2>
+
+<pre>
+User
+  |
+  v
+PingFederate
+  |
+  v
+API Gateway / Custom Authorizer
+  |
+  v
+Claims Validation & Session Controls
+  |
+  v
+Cedar Authorization Engine
+  |
+  v
+Amazon Bedrock Agent
+  |
+  v
+Action Groups / Lambda Tools
+  |
+  v
+Protected APIs / AWS Resources
+</pre>
+
+<div class="note">
+<b>Design Principle:</b> Authentication, authorization, and temporal validation should
+occur before any LLM invocation to reduce costs and improve security.
+</div>
+
+<hr>
+
+<h2>Phase 1: Foundation and First Mile Security</h2>
+
+<div class="phase">
+
+<h3>Goal</h3>
+
+<p>
+Deploy the minimum infrastructure required to validate identity and inbound access.
+</p>
+
+<h3>Components</h3>
+
+<ul>
+    <li>Amazon Bedrock Agent</li>
+    <li>IAM Execution Role</li>
+    <li>API Gateway</li>
+    <li>PingFederate OIDC Provider</li>
+    <li>Mock Lambda Endpoint</li>
+</ul>
+
+<h3>Implementation Steps</h3>
+
+<ol>
+    <li>Create Bedrock Agent execution role.</li>
+    <li>Attach minimum required Bedrock permissions.</li>
+    <li>Configure API Gateway.</li>
+    <li>Integrate PingFederate using OIDC.</li>
+    <li>Implement token introspection endpoint validation.</li>
+    <li>Forward validated claims downstream.</li>
+</ol>
+
+<h3>Recommended Flow</h3>
+
+<pre>
+User Login
+     |
+     v
+PingFederate
+     |
+     v
+JWT Token
+     |
+     v
+API Gateway Authorizer
+     |
+     +--> Token Introspection
+     |
+     v
+Validated Claims
+</pre>
+
+<h3>Validation Test</h3>
+
+<ul>
+    <li>Generate valid JWT from PingFederate.</li>
+    <li>Call API Gateway.</li>
+    <li>Verify claims reach backend.</li>
+    <li>Verify unauthorized tokens are rejected.</li>
+</ul>
+
+</div>
+
+<hr>
+
+<h2>Phase 2: Session Lifecycle and Temporal Controls</h2>
+
+<div class="phase">
+
+<h3>Goal</h3>
+
+<p>
+Ensure sessions automatically expire and access is denied after approved windows.
+</p>
+
+<h3>Claims to Capture</h3>
+
+<ul>
+    <li>sub</li>
+    <li>auth_time</li>
+    <li>exp</li>
+    <li>department</li>
+    <li>session_clearance</li>
+</ul>
+
+<h3>Implementation Flow</h3>
+
+<pre>
+PingFederate Token
+       |
+       v
+Authorizer
+       |
+       +--> Verify exp claim
+       +--> Verify auth_time
+       |
+       v
+Session Attributes
+</pre>
+
+<h3>Session Attributes Example</h3>
+
+<pre>
+{
+  "sessionAttributes": {
+      "userEmail": "john.doe@company.com",
+      "department": "Finance",
+      "sessionClearance": "Standard",
+      "tokenExpiry": "1791244800"
+  }
+}
+</pre>
+
+<h3>Security Controls</h3>
+
+<ul>
+    <li>Reject expired sessions.</li>
+    <li>Reject sessions exceeding maximum lifetime.</li>
+    <li>Terminate agent execution before model invocation.</li>
+</ul>
+
+<h3>Validation Test</h3>
+
+<ol>
+    <li>Invoke agent with valid session.</li>
+    <li>Verify response succeeds.</li>
+    <li>Allow token to expire.</li>
+    <li>Repeat request.</li>
+    <li>Verify rejection before LLM invocation.</li>
+</ol>
+
+</div>
+
+<hr>
+
+<h2>Phase 3: Cedar Fine-Grained Authorization</h2>
+
+<div class="phase">
+
+<h3>Goal</h3>
+
+<p>
+Authorize actions using Cedar before retrieval, prompting, or tool execution.
+</p>
+
+<h3>Authorization Pattern</h3>
+
+<pre>
+Request
+   |
+   v
+Authentication
+   |
+   v
+Cedar Evaluation
+   |
+   +--> Deny
+   |
+   +--> Allow
+           |
+           v
+       Bedrock Agent
+</pre>
+
+<h3>Example Cedar Policy</h3>
+
+<pre>
+permit(
+    principal,
+    action == Action::"ExecuteTool",
+    resource == Resource::"InternalFinanceData"
+)
+when {
+    principal.department == "Finance"
+};
+</pre>
+
+<h3>Recommended Protected Resources</h3>
+
+<ul>
+    <li>HR Systems</li>
+    <li>Finance Databases</li>
+    <li>Payroll Information</li>
+    <li>Corporate Knowledge Bases</li>
+    <li>Sensitive APIs</li>
+</ul>
+
+<h3>Validation Test</h3>
+
+<p><b>Finance User</b></p>
+
+<pre>
+department = Finance
+resource = InternalFinanceData
+Expected Result = ALLOW
+</pre>
+
+<p><b>Engineering User</b></p>
+
+<pre>
+department = Engineering
+resource = InternalFinanceData
+Expected Result = DENY
+</pre>
+
+<div class="success">
+Successful authorization should occur before any LLM token consumption.
+</div>
+
+</div>
+
+<hr>
+
+<h2>Phase 4: Bedrock Agent Integration</h2>
+
+<div class="phase">
+
+<h3>Goal</h3>
+
+<p>
+Connect identity-aware authorization with Amazon Bedrock Agent execution.
+</p>
+
+<h3>Agent Responsibilities</h3>
+
+<ul>
+    <li>Process user requests.</li>
+    <li>Invoke approved tools.</li>
+    <li>Respect Cedar decisions.</li>
+    <li>Use validated user context.</li>
+</ul>
+
+<h3>Suggested Foundation Model</h3>
+
+<ul>
+    <li>Claude 3.5 Haiku</li>
+</ul>
+
+<p>
+This model offers low latency and minimal cost while testing orchestration logic.
+</p>
+
+</div>
+
+<hr>
+
+<h2>Phase 5: Secure Outbound Access (Last Mile)</h2>
+
+<div class="phase">
+
+<h3>Goal</h3>
+
+<p>
+Ensure downstream resources only receive restricted credentials.
+</p>
+
+<h3>Outbound Security Pattern</h3>
+
+<pre>
+User
+ |
+ v
+Bedrock Agent
+ |
+ v
+Lambda Tool
+ |
+ v
+Scoped Session Policy
+ |
+ v
+Protected API
+</pre>
+
+<h3>Example Runtime Session Policy</h3>
+
+<pre>
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource":
+      "arn:aws:lambda:us-east-1:123456789012:function:MockEchoAPI"
+    }
+  ]
+}
+</pre>
+
+<h3>Security Objectives</h3>
+
+<ul>
+    <li>Prevent lateral movement.</li>
+    <li>Limit downstream privileges.</li>
+    <li>Constrain resources to current request context.</li>
+    <li>Create an auditable identity chain.</li>
+</ul>
+
+<h3>Validation Test</h3>
+
+<ol>
+    <li>Invoke Lambda tool.</li>
+    <li>Capture identity headers.</li>
+    <li>Verify department attribute.</li>
+    <li>Verify user ID.</li>
+    <li>Verify session constraints.</li>
+</ol>
+
+</div>
+
+<hr>
+
+<h2>Recommended AWS CLI Workflow</h2>
+
+<h3>Create Execution Role</h3>
+
+<pre>
+aws iam create-role \
+  --role-name AgentCore-POC-ExecutionRole \
+  --assume-role-policy-document file://trust-policy.json
+</pre>
+
+<h3>Attach Bedrock Permissions</h3>
+
+<pre>
+aws iam attach-role-policy \
+  --role-name AgentCore-POC-ExecutionRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+</pre>
+
+<h3>Create Agent</h3>
+
+<pre>
+aws bedrock-agent create-agent \
+  --agent-name "secure-poc-agent" \
+  --agent-resource-role-arn "ROLE_ARN" \
+  --foundation-model "anthropic.claude-3-5-haiku-20241022-v1:0"
+</pre>
+
+<h3>Invoke Agent</h3>
+
+<pre>
+aws bedrock-agent-runtime invoke-agent \
+  --agent-id "AGENT_ID" \
+  --agent-alias-id "ALIAS_ID" \
+  --session-id "session-001" \
+  --input-text "Retrieve travel updates"
+</pre>
+
+<hr>
+
+<h2>Target Validation Sequence</h2>
+
+<table>
+<tr>
+    <th>Phase</th>
+    <th>Validation</th>
+    <th>Expected Result</th>
+    <th>Approx Cost</th>
+</tr>
+
+<tr>
+    <td>1</td>
+    <td>PingFederate Authentication</td>
+    <td>Valid user accepted</td>
+    <td>&lt; $0.01</td>
+</tr>
+
+<tr>
+    <td>2</td>
+    <td>Session Expiration</td>
+    <td>Expired user rejected</td>
+    <td>$0.00</td>
+</tr>
+
+<tr>
+    <td>3</td>
+    <td>Cedar Authorization</td>
+    <td>Unauthorized user denied</td>
+    <td>$0.00</td>
+</tr>
+
+<tr>
+    <td>4</td>
+    <td>Bedrock Agent Execution</td>
+    <td>Agent responds correctly</td>
+    <td>&lt; $0.01</td>
+</tr>
+
+<tr>
+    <td>5</td>
+    <td>Lambda Tool Invocation</td>
+    <td>Scoped access verified</td>
+    <td>&lt; $0.01</td>
+</tr>
+
+<tr>
+    <td>6</td>
+    <td>End-to-End Security Chain</td>
+    <td>First Mile to Last Mile validated</td>
+    <td>&lt; $1 total</td>
+</tr>
+
+</table>
+
+<hr>
+
+<h2>Final Architecture Milestone</h2>
+
+<pre>
+User
+ |
+ v
+PingFederate
+ |
+ v
+API Gateway
+ |
+ v
+Token Introspection
+ |
+ v
+Temporal Controls
+ |
+ v
+Cedar Authorization
+ |
+ v
+Amazon Bedrock Agent
+ |
+ v
+Lambda Action Groups
+ |
+ v
+Scoped Session Policy
+ |
+ v
+Protected API / AWS Resource
+</pre>
+
+<p>
+At completion, this POC demonstrates enterprise-grade agent security using
+PingFederate authentication, temporal session enforcement, Cedar policy-based
+authorization, Bedrock Agent orchestration, and least-privilege outbound access
+while maintaining near-zero idle infrastructure cost.
+</p>
+
+</body>
+</html>
