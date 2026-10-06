@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>AWS Bedrock AgentCore POC - GitHub Implementation Guide</title>
+
+<style>
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 40px;
+    line-height: 1.6;
+    color: #333;
+}
+
+h1,h2,h3 {
+    color: #1f4e79;
+}
+
+.codeblock {
+    background: #f4f4f4;
+    border-left: 4px solid #1f4e79;
+    padding: 12px;
+    overflow-x: auto;
+}
+
+.section {
+    margin-top: 30px;
+}
+
+.note {
+    background: #eef7ff;
+    padding: 10px;
+    border: 1px solid #b9d7f2;
+}
+
+.success {
+    background: #eef9ef;
+    padding: 10px;
+    border: 1px solid #b8e0ba;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 15px;
+}
+
+table, th, td {
+    border: 1px solid #ddd;
+}
+
+th {
+    background-color: #1f4e79;
+    color: white;
+}
+
+th, td {
+    padding: 10px;
+}
+
+pre {
+    white-space: pre-wrap;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1>AWS Bedrock Agent Security POC</h1>
+<h2>GitHub Repository Implementation Guide</h2>
+
+<p>
+This document identifies the recommended GitHub repositories,
+how they align with the planned architecture, and the recommended
+implementation sequence for building a secure Bedrock AgentCore
+Proof of Concept using PingFederate, Cedar Authorization, Bedrock
+Agents, Lambda Tools, and Least Privilege IAM controls.
+</p>
+
+<hr>
+
+<h2>POC Goal</h2>
+
+<p>
+Validate an end-to-end security architecture supporting:
+</p>
+
+<ul>
+<li>PingFederate Authentication</li>
+<li>OIDC Identity Federation</li>
+<li>Temporal Session Controls</li>
+<li>Cedar Fine-Grained Authorization</li>
+<li>Amazon Bedrock Agent Runtime</li>
+<li>Lambda Action Groups</li>
+<li>Last Mile Authorization</li>
+<li>Least Privilege Session Policies</li>
+</ul>
+
+<hr>
+
+<h2>Target Architecture</h2>
+
+<pre>
+User
+ |
+ v
+PingFederate
+ |
+ v
+API Gateway / Authorizer
+ |
+ v
+Token Introspection
+ |
+ v
+Temporal Validation
+ |
+ v
+Cedar Authorization
+ |
+ v
+Amazon Bedrock Agent
+ |
+ v
+Lambda Action Group
+ |
+ v
+Protected API / AWS Resource
+</pre>
+
+<div class="note">
+Identity and authorization decisions should occur before
+any LLM invocation to minimize cost and maximize security.
+</div>
+
+<hr>
+
+<h1>Repository #1 (Primary Foundation)</h1>
+
+<h2>AgentCore Samples</h2>
+
+<p>
+Repository:
+</p>
+
+<div class="codeblock">
+https://github.com/awslabs/agentcore-samples
+</div>
+
+<h3>Why This Repository?</h3>
+
+<p>
+This repository should serve as the foundation of the entire POC.
+It contains examples and patterns for:
+</p>
+
+<ul>
+<li>AgentCore Runtime</li>
+<li>AgentCore Gateway</li>
+<li>Identity Integration</li>
+<li>Policy Controls</li>
+<li>Infrastructure as Code</li>
+<li>Production Agent Deployment</li>
+<li>Observability</li>
+</ul>
+
+<h3>POC Coverage</h3>
+
+<table>
+<tr>
+<th>Requirement</th>
+<th>Coverage</th>
+</tr>
+
+<tr>
+<td>Agent Runtime</td>
+<td>✅</td>
+</tr>
+
+<tr>
+<td>Gateway</td>
+<td>✅</td>
+</tr>
+
+<tr>
+<td>Identity</td>
+<td>✅</td>
+</tr>
+
+<tr>
+<td>Policy Engine</td>
+<td>✅</td>
+</tr>
+
+<tr>
+<td>Observability</td>
+<td>✅</td>
+</tr>
+
+</table>
+
+<h3>Recommended Folders</h3>
+
+<pre>
+00-getting-started
+01-features
+03-integrations
+04-infrastructure-as-code
+</pre>
+
+<hr>
+
+<h1>Repository #2 (Most Important for PingFederate)</h1>
+
+<h2>AgentCore Gateway User Federation Sample</h2>
+
+<div class="codeblock">
+https://github.com/aws-samples/sample-bedrock-agentcore-gateway-user-federation
+</div>
+
+<h3>Purpose</h3>
+
+<p>
+Provides a working implementation of user identity propagation
+through AgentCore Gateway and downstream APIs.
+</p>
+
+<h3>Key Features</h3>
+
+<ul>
+<li>OAuth 2.0 Integration</li>
+<li>OIDC Support</li>
+<li>JWT Validation</li>
+<li>JWT Propagation</li>
+<li>Gateway Interceptors</li>
+<li>User Federation</li>
+<li>Downstream API Identity Context</li>
+</ul>
+
+<h3>Recommended Modification</h3>
+
+<pre>
+Default Identity Provider
+       ↓
+
+Replace With
+
+PingFederate
+</pre>
+
+<h3>Architecture Mapping</h3>
+
+<pre>
+PingFederate
+     |
+     v
+Gateway
+     |
+     v
+Interceptor Lambda
+     |
+     v
+Protected API
+</pre>
+
+<div class="success">
+This repository directly supports the First Mile and Last Mile
+requirements in the proposed architecture.
+</div>
+
+<hr>
+
+<h1>Repository #3 (Authorization Layer)</h1>
+
+<h2>Cedar Policy Language</h2>
+
+<div class="codeblock">
+https://github.com/cedar-policy/cedar
+</div>
+
+<h3>Purpose</h3>
+
+<p>
+Provides the official Cedar authorization engine and policy language.
+</p>
+
+<h3>Use Cases</h3>
+
+<ul>
+<li>Tool Authorization</li>
+<li>Department Authorization</li>
+<li>Resource Access Authorization</li>
+<li>ABAC Controls</li>
+<li>RBAC Controls</li>
+</ul>
+
+<h3>Example Policy</h3>
+
+<pre>
+permit(
+    principal,
+    action == Action::"ExecuteTool",
+    resource == Resource::"FinanceDatabase"
+)
+when {
+    principal.department == "Finance"
+};
+</pre>
+
+<h3>Authorization Flow</h3>
+
+<pre>
+User Claims
+      |
+      v
+Cedar Evaluation
+      |
+      +--> Deny
+
+      +--> Allow
+                |
+                v
+          Bedrock Agent
+</pre>
+
+<h3>Benefits</h3>
+
+<ul>
+<li>Blocks unauthorized actions before LLM execution</li>
+<li>Reduces token consumption costs</li>
+<li>Provides auditable authorization decisions</li>
+</ul>
+
+<hr>
+
+<h1>Repository #4 (Tool Execution Layer)</h1>
+
+<h2>Amazon Bedrock Agent Samples</h2>
+
+<div class="codeblock">
+https://github.com/awslabs/amazon-bedrock-agent-samples
+</div>
+
+<h3>Purpose</h3>
+
+<p>
+Provides examples for Bedrock Agent implementation,
+Action Groups, Lambda Integration, Agent Tracing,
+and Multi-Agent orchestration.
+</p>
+
+<h3>Required Features</h3>
+
+<ul>
+<li>Lambda Action Groups</li>
+<li>Tool Invocation</li>
+<li>Agent Runtime Examples</li>
+<li>Human Approval Patterns</li>
+<li>Agent Observability</li>
+</ul>
+
+<h3>Relevant Architecture</h3>
+
+<pre>
+Bedrock Agent
+     |
+     v
+Action Group
+     |
+     v
+Lambda Tool
+     |
+     v
+Backend API
+</pre>
+
+<hr>
+
+<h1>Recommended Build Sequence</h1>
+
+<h2>Week 1</h2>
+
+<h3>Foundation</h3>
+
+<pre>
+Clone:
+awslabs/agentcore-samples
+</pre>
+
+<p>
+Deliverables:
+</p>
+
+<ul>
+<li>Agent Runtime</li>
+<li>Gateway Runtime</li>
+<li>Basic Infrastructure</li>
+</ul>
+
+<hr>
+
+<h2>Week 2</h2>
+
+<h3>Identity Federation</h3>
+
+<pre>
+Clone:
+sample-bedrock-agentcore-gateway-user-federation
+</pre>
+
+<p>
+Deliverables:
+</p>
+
+<ul>
+<li>PingFederate OIDC Integration</li>
+<li>JWT Validation</li>
+<li>Token Introspection</li>
+<li>User Claims Propagation</li>
+</ul>
+
+<hr>
+
+<h2>Week 3</h2>
+
+<h3>Cedar Authorization</h3>
+
+<pre>
+Clone:
+cedar-policy/cedar
+</pre>
+
+<p>
+Deliverables:
+</p>
+
+<ul>
+<li>Department Policies</li>
+<li>Tool Authorization Policies</li>
+<li>Resource Access Policies</li>
+<li>Local Cedar CLI Testing</li>
+</ul>
+
+<hr>
+
+<h2>Week 4</h2>
+
+<h3>Tool Security & Last Mile Controls</h3>
+
+<pre>
+Clone:
+amazon-bedrock-agent-samples
+</pre>
+
+<p>
+Deliverables:
+</p>
+
+<ul>
+<li>Lambda Action Groups</li>
+<li>Mock Backend API</li>
+<li>Scoped Session Policy</li>
+<li>Least Privilege Validation</li>
+</ul>
+
+<hr>
+
+<h1>Implementation Roadmap</h1>
+
+<table>
+
+<tr>
+<th>Phase</th>
+<th>Objective</th>
+<th>Repository</th>
+</tr>
+
+<tr>
+<td>Phase 1</td>
+<td>Runtime & Gateway</td>
+<td>agentcore-samples</td>
+</tr>
+
+<tr>
+<td>Phase 2</td>
+<td>PingFederate Federation</td>
+<td>gateway-user-federation</td>
+</tr>
+
+<tr>
+<td>Phase 3</td>
+<td>Cedar Authorization</td>
+<td>cedar-policy</td>
+</tr>
+
+<tr>
+<td>Phase 4</td>
+<td>Agent Tools</td>
+<td>amazon-bedrock-agent-samples</td>
+</tr>
+
+<tr>
+<td>Phase 5</td>
+<td>End-to-End Security Validation</td>
+<td>Combined Solution</td>
+</tr>
+
+</table>
+
+<hr>
+
+<h1>Final Architecture</h1>
+
+<pre>
+User
+ |
+ v
+PingFederate
+ |
+ v
+API Gateway Authorizer
+ |
+ v
+JWT Introspection
+ |
+ v
+Session Validation
+ |
+ v
+Cedar Policy Evaluation
+ |
+ v
+Amazon Bedrock Agent
+ |
+ v
+Lambda Action Group
+ |
+ v
+Scoped IAM Session Policy
+ |
+ v
+Protected API / AWS Service
+</pre>
+
+<h2>Expected Outcome</h2>
+
+<ul>
+<li>Enterprise-grade Identity Federation</li>
+<li>Temporal Session
